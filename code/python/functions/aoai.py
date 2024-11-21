@@ -1,4 +1,4 @@
-from azure.identity import DefaultAzureCredential
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 import openai
 import os
 import requests
@@ -8,7 +8,7 @@ import logging
 # It sets openai with the endpoint, api key etc.
 # TODO: stop dumping exception into stdout
 def setupOpenai(aoai_endpoint, aoai_version):
-  openai.api_base = aoai_endpoint
+  openai.azure_endpoint = aoai_endpoint
   openai.api_version = aoai_version
   try:
     api_key = os.getenv("OPENAI_API_KEY")
@@ -24,10 +24,16 @@ def setupOpenai(aoai_endpoint, aoai_version):
       try:
         print(f"\nCould not get API key from environment variable OPENAI_API_KEY. Trying Managed ID")
         logging.info(f"\nCould not get API key from environment variable OPENAI_API_KEY. Trying Managed ID")
-        default_credential = DefaultAzureCredential()
-        token = default_credential.get_token("https://cognitiveservices.azure.com/.default")
-        openai.api_type = "azure_ad"
-        openai.api_key = token.token
+        
+        # default_credential = DefaultAzureCredential()
+        # token = default_credential.get_token("https://cognitiveservices.azure.com/.default")
+        # openai.api_type = "azure_ad"
+        # openai.api_key = token.token
+        
+        # https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/managed-identity
+        token_provider = get_bearer_token_provider(  DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default")
+        openai.azure_ad_token_provider = token_provider
+        
         print("\nAuthenticated successfully with AAD token")
         logging.info("\nAuthenticated successfully with AAD token")
         return 2
@@ -42,8 +48,8 @@ def setupOpenai(aoai_endpoint, aoai_version):
 
 # Returns total tokens used and the chat completion
 def getChatCompletion(the_engine, the_messages):
-    response = openai.ChatCompletion.create(
-        engine=the_engine,
+    response = openai.chat.completions.create(        
+        model=the_engine,
         messages=the_messages,
         temperature=0,
         max_tokens=1000,
@@ -52,7 +58,8 @@ def getChatCompletion(the_engine, the_messages):
         presence_penalty=0,
         stop=None
     )
-    return response.usage.total_tokens, response.choices[0].finish_reason, response.choices[0].message["content"]
+    # https://stackoverflow.com/questions/77444332/openai-python-package-error-chatcompletion-object-is-not-subscriptable
+    return response.usage.total_tokens, response.choices[0].finish_reason, response.choices[0].message.content
 
 # Return vectors for a given text using the ADA model
 def generate_embedding(the_engine, the_text):
